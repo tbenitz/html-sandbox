@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML Sandbox</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f0f12;
+      color: #e4e4e7;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      padding: 12px 16px;
+      background: #18181b;
+      border-bottom: 1px solid #27272a;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    button, .file-label {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    button:hover { background: #2563eb; }
+    button.secondary { background: #3f3f46; }
+    button.secondary:hover { background: #52525b; }
+    .file-label {
+      display: inline-block;
+      background: #3f3f46;
+    }
+    .file-label:hover { background: #52525b; }
+    input[type=file] { display: none; }
+    .drop-zone {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .drop-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(59, 130, 246, 0.15);
+      border: 3px dashed #3b82f6;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 600;
+      z-index: 100;
+      pointer-events: none;
+    }
+    .drop-overlay.active { display: flex; }
+    .editor-preview {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    #code {
+      flex: 1;
+      min-width: 0;
+      background: #18181b;
+      color: #e4e4e7;
+      border: none;
+      padding: 12px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+    }
+    .divider {
+      width: 6px;
+      background: #27272a;
+      cursor: col-resize;
+    }
+    #preview {
+      flex: 1;
+      min-width: 0;
+      background: white;
+      border: none;
+    }
+    #console {
+      height: 120px;
+      background: #09090b;
+      border-top: 1px solid #27272a;
+      padding: 8px 12px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 12px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: #a1a1aa;
+    }
+    #console .log { color: #e4e4e7; }
+    #console .error { color: #f87171; }
+    #console .warn { color: #fbbf24; }
+    .status {
+      font-size: 0.75rem;
+      color: #a1a1aa;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HTML Sandbox</h1>
+    <button onclick="run()">Run</button>
+    <button class="secondary" onclick="clearAll()">Clear</button>
+    <label class="file-label">
+      Upload HTML
+      <input type="file" id="fileInput" accept=".html,.htm,text/html" onchange="handleFile(this.files)">
+    </label>
+    <button class="secondary" onclick="loadExample()">Example</button>
+    <span class="status" id="status">Ready</span>
+  </header>
+
+  <div class="drop-overlay" id="dropOverlay">Drop HTML file here</div>
+
+  <div class="editor-preview">
+    <textarea id="code" placeholder="Paste HTML here, or drag & drop an .html file..."></textarea>
+    <div class="divider" id="divider"></div>
+    <iframe id="preview" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+  </div>
+
+  <div id="console"></div>
+
+  <script>
+    const code = document.getElementById('code');
+    const preview = document.getElementById('preview');
+    const consoleEl = document.getElementById('console');
+    const status = document.getElementById('status');
+    const dropOverlay = document.getElementById('dropOverlay');
+    let currentBlobUrl = null;
+
+    // Capture console from iframe
+    const originalConsole = {
+      log: console.log,
+      error: console.error,
+      warn: console.warn
+    };
+
+    function logToConsole(type, args) {
+      const line = document.createElement('div');
+      line.className = type;
+      line.textContent = args.map(a => 
+        typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
+      ).join(' ');
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function run() {
+      const html = code.value;
+      if (!html.trim()) {
+        status.textContent = 'Empty';
+        return;
+      }
+
+      // Clean previous blob
+      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+
+      const blob = new Blob([html], { type: 'text/html' });
+      currentBlobUrl = URL.createObjectURL(blob);
+      preview.src = currentBlobUrl;
+
+      consoleEl.innerHTML = '';
+      status.textContent = 'Running...';
+
+      // Inject console capture into the HTML if possible
+      // For simplicity we rely on the iframe's own console + browser devtools
+      // You can open DevTools on the iframe if needed
+
+      preview.onload = () => {
+        status.textContent = 'Loaded';
+        try {
+          // Try to hook console in the iframe (same-origin due to blob)
+          const win = preview.contentWindow;
+          if (win && win.console) {
+            ['log', 'error', 'warn', 'info'].forEach(method => {
+              const orig = win.console[method];
+              win.console[method] = (...args) => {
+                logToConsole(method === 'error' ? 'error' : method === 'warn' ? 'warn' : 'log', args);
+                orig.apply(win.console, args);
+              };
+            });
+          }
+        } catch (e) {
+          // cross-origin or restricted
+        }
+      };
+    }
+
+    function clearAll() {
+      code.value = '';
+      preview.src = 'about:blank';
+      consoleEl.innerHTML = '';
+      status.textContent = 'Cleared';
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+      }
+    }
+
+    function handleFile(files) {
+      if (!files || !files[0]) return;
+      const file = files[0];
+      if (!file.name.match(/\.(html|htm)$/i) && file.type !== 'text/html') {
+        status.textContent = 'Not an HTML file';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = e => {
+        code.value = e.target.result;
+        run();
+        status.textContent = 'Loaded: ' + file.name;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadExample() {
+      code.value = `<!DOCTYPE html>
+<html>
+<head>
+  <title>CORS Test</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; background: #f4f4f5; }
+    button { padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    pre { background: #18181b; color: #e4e4e7; padding: 12px; border-radius: 6px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h2>CORS / Fetch Test</h2>
+  <button onclick="testFetch()">Test Fetch (httpbin)</button>
+  <button onclick="testFail()">Test CORS Fail</button>
+  <pre id="out">Click a button...</pre>
+  <script>
+    async function testFetch() {
+      const out = document.getElementById('out');
+      try {
+        const res = await fetch('https://httpbin.org/get');
+        const data = await res.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = 'Error: ' + e.message;
+      }
+    }
+    async function testFail() {
+      const out = document.getElementById('out');
+      try {
+        // This will usually fail due to CORS
+        const res = await fetch('https://api.github.com/user');
+        const data = await res.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = 'Expected CORS error: ' + e.message;
+        console.error(e);
+      }
+    }
+  </script>
+</body>
+</html>`;
+      run();
+    }
+
+    // Drag and drop
+    document.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+    document.addEventListener('dragleave', e => {
+      if (e.target === document.documentElement || !e.relatedTarget) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+    document.addEventListener('drop', e => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      handleFile(e.dataTransfer.files);
+    });
+
+    // Resizable divider
+    const divider = document.getElementById('divider');
+    let isResizing = false;
+    divider.addEventListener('mousedown', e => {
+      isResizing = true;
+      document.body.style.cursor = 'col-resize';
+    });
+    document.addEventListener('mousemove', e => {
+      if (!isResizing) return;
+      const editor = code;
+      const container = editor.parentElement;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const pct = Math.min(Math.max(x / rect.width, 0.15), 0.85);
+      editor.style.flex = pct;
+      preview.style.flex = 1 - pct;
+    });
+    document.addEventListener('mouseup', () => {
+      isResizing = false;
+      document.body.style.cursor = '';
+    });
+
+    // Auto-run on Ctrl/Cmd+Enter
+    code.addEventListener('keydown', e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        run();
+      }
+    });
+
+    // Persist last code
+    code.addEventListener('input', () => {
+      localStorage.setItem('html-sandbox-code', code.value);
+    });
+    const saved = localStorage.getItem('html-sandbox-code');
+    if (saved) code.value = saved;
+  </script>
+</body>
+</html>
