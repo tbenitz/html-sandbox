@@ -49,12 +49,6 @@
     }
     .file-label:hover { background: #52525b; }
     input[type=file] { display: none; }
-    .drop-zone {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
     .drop-overlay {
       position: fixed;
       inset: 0;
@@ -150,13 +144,6 @@
     const dropOverlay = document.getElementById('dropOverlay');
     let currentBlobUrl = null;
 
-    // Capture console from iframe
-    const originalConsole = {
-      log: console.log,
-      error: console.error,
-      warn: console.warn
-    };
-
     function logToConsole(type, args) {
       const line = document.createElement('div');
       line.className = type;
@@ -174,7 +161,6 @@
         return;
       }
 
-      // Clean previous blob
       if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
 
       const blob = new Blob([html], { type: 'text/html' });
@@ -184,14 +170,9 @@
       consoleEl.innerHTML = '';
       status.textContent = 'Running...';
 
-      // Inject console capture into the HTML if possible
-      // For simplicity we rely on the iframe's own console + browser devtools
-      // You can open DevTools on the iframe if needed
-
       preview.onload = () => {
         status.textContent = 'Loaded';
         try {
-          // Try to hook console in the iframe (same-origin due to blob)
           const win = preview.contentWindow;
           if (win && win.console) {
             ['log', 'error', 'warn', 'info'].forEach(method => {
@@ -202,9 +183,7 @@
               };
             });
           }
-        } catch (e) {
-          // cross-origin or restricted
-        }
+        } catch (e) {}
       };
     }
 
@@ -265,7 +244,6 @@
     async function testFail() {
       const out = document.getElementById('out');
       try {
-        // This will usually fail due to CORS
         const res = await fetch('https://api.github.com/user');
         const data = await res.json();
         out.textContent = JSON.stringify(data, null, 2);
@@ -274,7 +252,7 @@
         console.error(e);
       }
     }
-  </script>
+  <\/script>
 </body>
 </html>`;
       run();
